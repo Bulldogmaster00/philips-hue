@@ -1,5 +1,4 @@
-const { Accessory, Characteristic, Service } = require('homebridge');
-const HueBulb = require('philips-hue-ble');
+const HueLight = require('hue-light');
 
 class PhilipsHueBleAccessory {
   constructor(log, config, api) {
@@ -9,10 +8,14 @@ class PhilipsHueBleAccessory {
 
     this.mac = config.address;
     this.name = config.name || 'Lâmpada Hue Bluetooth';
-    this.bulb = null;
+    this.light = null;
     this.connected = false;
 
-    // Criar o serviço de lâmpada
+    // Cache para evitar leituras constantes
+    this._cachedOn = false;
+    this._cachedBrightness = 100;
+
+    // Serviço da lâmpada
     this.lightbulbService = new Service.Lightbulb(this.name);
 
     // Característica Ligar/Desligar
@@ -27,108 +30,99 @@ class PhilipsHueBleAccessory {
       .onSet(this.setBrightness.bind(this))
       .onGet(this.getBrightness.bind(this));
 
-    // Serviço de Informação
+    // Informações do accessory
     this.informationService = new Service.AccessoryInformation()
       .setCharacteristic(Characteristic.Manufacturer, 'Philips')
       .setCharacteristic(Characteristic.Model, 'Hue Bluetooth')
       .setCharacteristic(Characteristic.SerialNumber, this.mac);
 
-    // Lista de serviços para o Homebridge
     this.services = [this.lightbulbService, this.informationService];
-
-    // Cache para evitar leituras constantes
-    this._cachedOn = false;
-    this._cachedBrightness = 100;
   }
 
-  // ---------------------------
-  // CONEXÃO BLUETOOTH
-  // ---------------------------
+  // Conecta à lâmpada
   async connect() {
-    if (this.bulb && this.connected) {
-      return this.bulb;
+    if (this.light && this.connected) {
+      return this.light;
     }
 
     try {
       this.log.info(`Conectando à lâmpada ${this.mac}...`);
-      this.bulb = new HueBulb(this.mac);
-      await this.bulb.init();
+      this.light = new HueLight(this.mac);
+      await this.light.connect();
       this.connected = true;
       this.log.info(`Conectado com sucesso!`);
-      return this.bulb;
+      return this.light;
     } catch (err) {
       this.log.error(`Falha na conexão: ${err.message}`);
       this.connected = false;
-      throw new Error(`Bluetooth offline: ${err.message}`);
+      throw err;
     }
   }
 
-  // ---------------------------
-  // GETTERS (para HomeKit)
-  // ---------------------------
+  // GET: estado ligado
   async getOn() {
     try {
-      const bulb = await this.connect();
-      const state = await bulb.getPower();
+      const light = await this.connect();
+      const state = await light.getPower();
       this._cachedOn = state;
       return state;
     } catch (err) {
-      this.log.warn(`Falha ao ler estado (getOn): ${err.message}`);
-      return this._cachedOn; // retorna último valor conhecido
+      this.log.warn(`Erro ao ler estado: ${err.message}`);
+      return this._cachedOn;
     }
   }
 
+  // GET: brilho
   async getBrightness() {
     try {
-      const bulb = await this.connect();
-      const bri = await bulb.getBrightness();
+      const light = await this.connect();
+      const bri = await light.getBrightness();
       this._cachedBrightness = bri;
       return bri;
     } catch (err) {
-      this.log.warn(`Falha ao ler brilho (getBrightness): ${err.message}`);
+      this.log.warn(`Erro ao ler brilho: ${err.message}`);
       return this._cachedBrightness;
     }
   }
 
-  // ---------------------------
-  // SETTERS (para HomeKit)
-  // ---------------------------
+  // SET: ligar/desligar
   async setOn(value) {
     this.log(`Definindo estado: ${value ? 'LIGADO' : 'DESLIGADO'}`);
     try {
-      const bulb = await this.connect();
-      await bulb.setPower(value);
+      const light = await this.connect();
+      await light.setPower(value);
       this._cachedOn = value;
     } catch (err) {
       this.log.error(`Erro ao alterar estado: ${err.message}`);
-      // Tenta reconectar na próxima vez
       this.connected = false;
-      throw new Error('Falha ao alterar estado');
+      throw err;
     }
   }
 
+  // SET: brilho
   async setBrightness(value) {
     this.log(`Definindo brilho: ${value}%`);
     try {
-      const bulb = await this.connect();
-      await bulb.setBrightness(value);
+      const light = await this.connect();
+      await light.setBrightness(value);
       this._cachedBrightness = value;
     } catch (err) {
       this.log.error(`Erro ao alterar brilho: ${err.message}`);
       this.connected = false;
-      throw new Error('Falha ao alterar brilho');
+      throw err;
     }
   }
 
-  // ---------------------------
-  // RETORNA SERVIÇOS
-  // ---------------------------
   getServices() {
     return this.services;
   }
 }
 
-// Registra o accessory no Homebridge
+// ====== REGISTRO NO HOMEBRIDGE ======
 module.exports = (api) => {
+  const { Accessory, Characteristic, Service } = api.hap;
+  // Injeta as referências na classe
+  PhilipsHueBleAccessory.prototype.Service = Service;
+  PhilipsHueBleAccessory.prototype.Characteristic = Characteristic;
   api.registerAccessory('PhilipsHueBleAccessory', PhilipsHueBleAccessory);
 };
