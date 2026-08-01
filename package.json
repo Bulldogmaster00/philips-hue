@@ -9,6 +9,6 @@
     "homebridge": ">=1.6.0"
   },
   "dependencies": {
-    "hue-light": "^0.0.8"
+    "hue-light": "*"
   }
 }
