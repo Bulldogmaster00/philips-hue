@@ -1,28 +1,28 @@
-const { Accessory, Service, Characteristic } = require('homebridge');
 const noble = require('@abandonware/noble');
 
-// UUIDs GATT da Philips Hue Bluetooth (engenharia reversa)
+// UUIDs GATT da Philips Hue Bluetooth
 const HUE_SERVICE_UUID = '932c32bd-0000-47a2-835a-a8d455b859dd';
 const HUE_CHARACTERISTIC_UUID = '932c32bd-0001-47a2-835a-a8d455b859dd';
 
-// Comandos (formato little-endian)
+// Comandos
 const CMD_ON = Buffer.from([0x01, 0x01, 0x00, 0x00, 0x00, 0x00]);
 const CMD_OFF = Buffer.from([0x01, 0x00, 0x00, 0x00, 0x00, 0x00]);
 const CMD_BRIGHTNESS = (level) => {
   const buf = Buffer.alloc(6);
   buf[0] = 0x01;
   buf[1] = 0x01;
-  buf[2] = level; // 0-254 (0x00 a 0xFE)
+  buf[2] = level;
   buf[3] = 0x00;
   buf[4] = 0x00;
   buf[5] = 0x00;
   return buf;
 };
 
-let peripheral = null;
-let characteristic = null;
+let Service, Characteristic;
 
 module.exports = (api) => {
+  Service = api.hap.Service;
+  Characteristic = api.hap.Characteristic;
   api.registerAccessory('PhilipsHueBle', PhilipsHueBleAccessory);
 };
 
@@ -31,8 +31,10 @@ class PhilipsHueBleAccessory {
     this.log = log;
     this.config = config;
     this.name = config.name || 'Philips Hue Bulb';
-    this.address = config.address || null; // MAC ou UUID do dispositivo
+    this.address = config.address || null;
     this.timeout = null;
+    this.characteristic = null;
+    this.peripheral = null;
 
     this.services = [];
     this.informationService = new Service.AccessoryInformation()
@@ -51,7 +53,6 @@ class PhilipsHueBleAccessory {
 
     this.services = [this.informationService, this.lightbulbService];
 
-    // Inicia a descoberta BLE se não tiver endereço fixo
     if (!this.address) {
       this.log('No address provided, starting BLE discovery...');
       this.startDiscovery();
@@ -61,7 +62,6 @@ class PhilipsHueBleAccessory {
     }
   }
 
-  // === DESCOBERTA AUTOMÁTICA ===
   startDiscovery() {
     noble.on('stateChange', (state) => {
       if (state === 'poweredOn') {
@@ -81,14 +81,12 @@ class PhilipsHueBleAccessory {
       }
     });
 
-    // Timeout após 30 segundos
     setTimeout(() => {
       noble.stopScanning();
       this.log('Discovery timeout. No Hue bulb found.');
     }, 30000);
   }
 
-  // === CONEXÃO ===
   connectToDevice(address) {
     noble.connect(address, (err) => {
       if (err) {
@@ -111,9 +109,8 @@ class PhilipsHueBleAccessory {
             this.scheduleReconnect();
             return;
           }
-          characteristic = characteristics[0];
+          this.characteristic = characteristics[0];
           this.log('Ready to control the bulb.');
-          // Ao conectar, lê o estado atual
           this.readState();
         });
       });
@@ -127,7 +124,6 @@ class PhilipsHueBleAccessory {
     });
   }
 
-  // === RECONEXÃO ===
   scheduleReconnect() {
     if (this.timeout) clearTimeout(this.timeout);
     this.timeout = setTimeout(() => {
@@ -136,18 +132,16 @@ class PhilipsHueBleAccessory {
     }, 5000);
   }
 
-  // === LEITURA DO ESTADO ===
   readState() {
-    if (!characteristic) return;
-    characteristic.read((err, data) => {
+    if (!this.characteristic) return;
+    this.characteristic.read((err, data) => {
       if (err) {
         this.log('Failed to read state.');
         return;
       }
-      // O estado vem em 6 bytes: byte0=0x01, byte1=on/off, byte2=brilho
       if (data && data.length >= 3) {
         const isOn = data[1] === 1;
-        const brightness = data[2]; // 0-254
+        const brightness = data[2];
         this.lightbulbService.updateCharacteristic(Characteristic.On, isOn);
         this.lightbulbService.updateCharacteristic(Characteristic.Brightness, brightness);
         this.log(`State: ${isOn ? 'On' : 'Off'}, Brightness: ${brightness}`);
@@ -155,19 +149,17 @@ class PhilipsHueBleAccessory {
     });
   }
 
-  // === COMANDOS ===
   sendCommand(cmd, callback) {
-    if (!characteristic) {
+    if (!this.characteristic) {
       callback(new Error('Not connected'));
       return;
     }
-    characteristic.write(cmd, false, (err) => {
+    this.characteristic.write(cmd, false, (err) => {
       if (err) {
         this.log(`Write error: ${err.message}`);
         callback(err);
       } else {
         callback(null);
-        // Atualiza o estado após o comando
         setTimeout(() => this.readState(), 500);
       }
     });
@@ -180,7 +172,6 @@ class PhilipsHueBleAccessory {
   }
 
   getPower(callback) {
-    // Retorna o valor atual em cache
     const current = this.lightbulbService.getCharacteristic(Characteristic.On).value;
     callback(null, current);
   }
@@ -196,7 +187,6 @@ class PhilipsHueBleAccessory {
     callback(null, current);
   }
 
-  // === Homebridge REQUIRED ===
   getServices() {
     return this.services;
   }
