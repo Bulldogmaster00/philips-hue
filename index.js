@@ -1,5 +1,8 @@
 const HueLight = require('hue-light');
 
+// Referências ao HAP – serão preenchidas no registro
+let Service, Characteristic;
+
 class PhilipsHueBleAccessory {
   constructor(log, config, api) {
     this.log = log;
@@ -39,7 +42,9 @@ class PhilipsHueBleAccessory {
     this.services = [this.lightbulbService, this.informationService];
   }
 
-  // Conecta à lâmpada
+  // ------------------------------------------------------------
+  // Conecta à lâmpada (reutiliza conexão existente)
+  // ------------------------------------------------------------
   async connect() {
     if (this.light && this.connected) {
       return this.light;
@@ -59,7 +64,9 @@ class PhilipsHueBleAccessory {
     }
   }
 
-  // GET: estado ligado
+  // ------------------------------------------------------------
+  // GET: estado ligado (On)
+  // ------------------------------------------------------------
   async getOn() {
     try {
       const light = await this.connect();
@@ -72,7 +79,9 @@ class PhilipsHueBleAccessory {
     }
   }
 
-  // GET: brilho
+  // ------------------------------------------------------------
+  // GET: brilho (Brightness)
+  // ------------------------------------------------------------
   async getBrightness() {
     try {
       const light = await this.connect();
@@ -85,9 +94,11 @@ class PhilipsHueBleAccessory {
     }
   }
 
+  // ------------------------------------------------------------
   // SET: ligar/desligar
+  // ------------------------------------------------------------
   async setOn(value) {
-    this.log(`Definindo estado: ${value ? 'LIGADO' : 'DESLIGADO'}`);
+    this.log.info(`Definindo estado: ${value ? 'LIGADO' : 'DESLIGADO'}`);
     try {
       const light = await this.connect();
       await light.setPower(value);
@@ -99,9 +110,11 @@ class PhilipsHueBleAccessory {
     }
   }
 
+  // ------------------------------------------------------------
   // SET: brilho
+  // ------------------------------------------------------------
   async setBrightness(value) {
-    this.log(`Definindo brilho: ${value}%`);
+    this.log.info(`Definindo brilho: ${value}%`);
     try {
       const light = await this.connect();
       await light.setBrightness(value);
@@ -113,16 +126,20 @@ class PhilipsHueBleAccessory {
     }
   }
 
+  // ------------------------------------------------------------
+  // Retorna os serviços para o Homebridge
+  // ------------------------------------------------------------
   getServices() {
     return this.services;
   }
 }
 
-// ====== REGISTRO NO HOMEBRIDGE ======
+// ================================================================
+// REGISTRO NO HOMEBRIDGE
+// ================================================================
 module.exports = (api) => {
-  const { Accessory, Characteristic, Service } = api.hap;
-  // Injeta as referências na classe
-  PhilipsHueBleAccessory.prototype.Service = Service;
-  PhilipsHueBleAccessory.prototype.Characteristic = Characteristic;
+  const hap = api.hap;
+  Service = hap.Service;
+  Characteristic = hap.Characteristic;
   api.registerAccessory('PhilipsHueBleAccessory', PhilipsHueBleAccessory);
 };
