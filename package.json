@@ -1,15 +1,18 @@
 {
   "name": "homebridge-philips-hue-ble-custom",
   "version": "1.0.0",
-  "description": "Homebridge plugin for Philips Hue Bluetooth bulbs",
+  "description": "Custom Homebridge plugin for Philips Hue Bluetooth bulbs",
   "main": "index.js",
-  "keywords": ["homebridge", "philips-hue", "bluetooth"],
-  "engines": {
-    "node": ">=16.0.0",
-    "homebridge": ">=1.6.0"
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [
+    "homebridge-plugin"
+  ],
+  "homebridge-plugin": true,
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "homebridge-plugin": true
-    "hue-light": "*"
+    "hue-light": "^1.0.0"
   }
 }
