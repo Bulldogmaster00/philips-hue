@@ -1,14 +1,14 @@
 {
   "name": "homebridge-philips-hue-ble-custom",
   "version": "1.0.0",
-  "description": "Custom Homebridge plugin para controlar lâmpadas Philips Hue via Bluetooth",
+  "description": "Homebridge plugin for Philips Hue Bluetooth bulbs",
   "main": "index.js",
-  "keywords": ["homebridge", "philips-hue", "bluetooth", "ble"],
+  "keywords": ["homebridge", "philips-hue", "bluetooth"],
   "engines": {
     "node": ">=16.0.0",
     "homebridge": ">=1.6.0"
   },
   "dependencies": {
-    "philips-hue-ble": "^1.1.0"
+    "hue-light": "^0.0.8"
   }
 }
