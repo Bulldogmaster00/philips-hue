@@ -1,113 +1,76 @@
 const noble = require('@abandonware/noble');
 
-const MAC_LAMPADA = 'de4f22914d12'; // Seu MAC (sem ":")
-const HUE_SERVICE_UUID = '0000fe95-0000-1000-8000-00805f9b34fb';
+const MAC_LAMPADA = 'de4f22914d12'; // sem ":"
+const SERVICE_UUID = '0000fe0f00001000800000805f9b34fb'; // corrigido
+const CHAR_UUID    = '932c32bd000247a2835aa8d455b859dd'; // controle on/off
 
 module.exports = (api) => {
-  api.registerAccessory('MeuPluginHueBLE', 'MinhaLampadaBLE');
+  api.registerAccessory('homebridge-philips-hue-ble', 'HueBLE', HueBLE);
 };
 
-class MinhaLampadaBLE {
+class HueBLE {
   constructor(log, config, api) {
     this.log = log;
     this.config = config;
     this.api = api;
-    this.Service = this.api.hap.Service;
-    this.Characteristic = this.api.hap.Characteristic;
-    this.peripheral = null; // Guarda a referência da lâmpada
-    this.isConnecting = false; // Evita tentar conectar duas vezes ao mesmo tempo
+    this.Service = api.hap.Service;
+    this.Characteristic = api.hap.Characteristic;
 
-    // Serviço da lâmpada no HomeKit
-    this.lightbulbService = new this.Service.Lightbulb(this.config.name);
-    this.lightbulbService.getCharacteristic(this.Characteristic.On)
+    this.name = config.name || 'Hue Bluetooth';
+    this.peripheral = null;
+    this.isConnecting = false;
+
+    this.service = new this.Service.Lightbulb(this.name);
+    this.service.getCharacteristic(this.Characteristic.On)
       .onSet(this.setOn.bind(this));
 
-    this.log.info("✅ Plugin carregado! Aguardando lâmpada...");
-
-    // REGISTRA OS EVENTOS DO BLE UMA ÚNICA VEZ AQUI (NO CONSTRUTOR)
     noble.on('stateChange', async (state) => {
-      if (state === 'poweredOn') {
-        // Começa a procurar só se ainda não tiver uma lâmpada guardada
-        if (!this.peripheral) {
-          await noble.startScanningAsync([HUE_SERVICE_UUID], true);
-        }
+      if (state === 'poweredOn' && !this.peripheral) {
+        await noble.startScanningAsync([SERVICE_UUID], false);
       }
     });
 
     noble.on('discover', (peripheral) => {
-      // Se já temos uma lâmpada guardada, ignora
+      // usa peripheral.address para comparação segura
       if (this.peripheral) return;
-
-      if (peripheral.uuid === MAC_LAMPADA) {
-        this.log("🔍 Lâmpada encontrada no BLE!");
+      const addr = (peripheral.address || '').replace(/:/g, '').toLowerCase();
+      if (addr === MAC_LAMPADA) {
+        this.log.info('Lâmpada encontrada:', addr);
         noble.stopScanningAsync();
-        this.peripheral = peripheral; // Salva a lâmpada na memória
+        this.peripheral = peripheral;
       }
     });
   }
 
-  // Chamado pelo app Casa do iOS
   async setOn(value) {
-    this.log(`📱 Comando recebido: ${value ? 'LIGAR' : 'DESLIGAR'}`);
-
-    // Se ainda não encontrou a lâmpada, não faz nada
     if (!this.peripheral) {
-      this.log("❌ Erro: A lâmpada ainda não foi encontrada pelo BLE!");
+      this.log.warn('Lâmpada não disponível');
       return;
     }
-
-    // Evita múltiplas conexões simultâneas
-    if (this.isConnecting) {
-      this.log("⚠️ Já estou tentando conectar, aguarde...");
-      return;
-    }
+    if (this.isConnecting) return;
     this.isConnecting = true;
 
-    const comando = value 
-      ? '0c0e0100c089eb4278ef200c1fda4de9000000' 
-      : '0c0e0100c089eb4278ef200c1fda4de9000001';
-    const bufferComando = Buffer.from(comando, 'hex');
+    const command = value ? Buffer.from('020101', 'hex') : Buffer.from('020100', 'hex');
 
-    this.peripheral.connect((error) => {
-      if (error) {
-        this.log('❌ Erro ao conectar:', error.message);
-        this.isConnecting = false;
-        return;
-      }
+    try {
+      await this.peripheral.connectAsync();
+      const { characteristics } = await this.peripheral.discoverSomeServicesAndCharacteristicsAsync(
+        [SERVICE_UUID], [CHAR_UUID]
+      );
+      const char = characteristics.find(c => c.uuid === CHAR_UUID);
+      if (!char) throw new Error('Característica não encontrada');
 
-      this.peripheral.discoverServices([HUE_SERVICE_UUID], (err, services) => {
-        if (err || !services.length) {
-          this.log('❌ Não encontrou o serviço da Hue');
-          this.isConnecting = false;
-          this.peripheral.disconnect();
-          return;
-        }
-
-        services[0].discoverCharacteristics([], (err, chars) => {
-          if (err || !chars.length) {
-            this.log('❌ Não encontrou a característica');
-            this.isConnecting = false;
-            this.peripheral.disconnect();
-            return;
-          }
-
-          // Envia o comando e desconecta depois
-          const char = chars[0];
-          char.write(bufferComando, true, (err) => {
-            this.isConnecting = false; // Libera a trava
-            if (err) {
-              this.log(`❌ Erro ao enviar comando: ${err}`);
-            } else {
-              this.log(`✅ Lâmpada ${value ? 'LIGADA' : 'DESLIGADA'} com sucesso!`);
-            }
-            this.peripheral.disconnect(); // Desconecta pra não sobrecarregar o Bluetooth
-          });
-        });
-      });
-    });
+      await char.writeAsync(command, false); // false = sem resposta
+      this.log.info(`Lâmpada ${value ? 'ligada' : 'desligada'}`);
+    } catch (err) {
+      this.log.error('Erro:', err.message);
+    } finally {
+      this.isConnecting = false;
+      try { await this.peripheral.disconnectAsync(); } catch (e) {}
+    }
   }
 
   getServices() {
-    return [this.lightbulbService];
+    return [this.service];
   }
 }
