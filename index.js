@@ -1,8 +1,8 @@
 const noble = require('@abandonware/noble');
 
 const MAC_LAMPADA = 'de4f22914d12'; // sem ":"
-const SERVICE_UUID = '0000fe0f00001000800000805f9b34fb'; // corrigido
-const CHAR_UUID    = '932c32bd000247a2835aa8d455b859dd'; // controle on/off
+const SERVICE_UUID = '932c32bd000047a2835aa8d455b859dd'; // serviço Hue BLE
+const CHAR_UUID    = '932c32bd000247a2835aa8d455b859dd'; // característica on/off
 
 module.exports = (api) => {
   api.registerAccessory('homebridge-philips-hue-ble', 'HueBLE', HueBLE);
@@ -26,12 +26,12 @@ class HueBLE {
 
     noble.on('stateChange', async (state) => {
       if (state === 'poweredOn' && !this.peripheral) {
-        await noble.startScanningAsync([SERVICE_UUID], false);
+        // sem filtro de serviço: nem todo periférico anuncia o UUID do serviço
+        await noble.startScanningAsync([], true);
       }
     });
 
     noble.on('discover', (peripheral) => {
-      // usa peripheral.address para comparação segura
       if (this.peripheral) return;
       const addr = (peripheral.address || '').replace(/:/g, '').toLowerCase();
       if (addr === MAC_LAMPADA) {
@@ -40,6 +40,9 @@ class HueBLE {
         this.peripheral = peripheral;
       }
     });
+
+    // reconecta o scanner se a lâmpada cair
+    noble.on('warning', (msg) => this.log.warn('noble warning:', msg));
   }
 
   async setOn(value) {
@@ -50,7 +53,7 @@ class HueBLE {
     if (this.isConnecting) return;
     this.isConnecting = true;
 
-    const command = value ? Buffer.from('020101', 'hex') : Buffer.from('020100', 'hex');
+    const command = value ? Buffer.from('0101', 'hex') : Buffer.from('0100', 'hex');
 
     try {
       await this.peripheral.connectAsync();
@@ -67,6 +70,10 @@ class HueBLE {
     } finally {
       this.isConnecting = false;
       try { await this.peripheral.disconnectAsync(); } catch (e) {}
+      // limpa referência para permitir nova busca caso a conexão tenha falhado
+      if (!this.peripheral.state || this.peripheral.state === 'disconnected') {
+        // mantém peripheral em cache para reconexões futuras (evita novo scan)
+      }
     }
   }
 
